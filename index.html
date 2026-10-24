@@ -136,10 +136,17 @@ async function q(p){const r=await p;if(r.error)throw r.error;return r.data}
 let me=null,D=[],P=[],T=[],C=[],READ=new Set(),ALLREAD=[],N=[],AUD=[],INV=[];
 let route='home',filt={dept:'all',mine:false},booted=false;
 const dn=id=>(D.find(d=>d.id===id)||{name:'بدون إدارة'}).name;
+const dfull=id=>{const d=D.find(x=>x.id===id);if(!d)return 'بدون إدارة';const pa=d.parent_id&&D.find(x=>x.id===d.parent_id);return pa?pa.name+' › '+d.name:d.name};
+const committees=()=>D.filter(d=>!d.parent_id);
+const kids=id=>D.filter(d=>d.parent_id===id);
+const myDeptIds=()=>me&&me.dept_id?[me.dept_id,...kids(me.dept_id).map(d=>d.id)]:[];
+function deptOpts(list,sel){const ids=new Set(list.map(d=>d.id));const out=[];
+  list.filter(d=>!d.parent_id||!ids.has(d.parent_id)).forEach(c=>{out.push([c,0]);list.filter(x=>x.parent_id===c.id).forEach(k=>out.push([k,1]))});
+  return out.map(([d,l])=>`<option value="${esc(d.id)}" ${d.id===sel?'selected':''}>${l?'↳ ':''}${esc(d.name)}</option>`).join('')}
 const pn=id=>(P.find(p=>p.id===id)||{full_name:'—'}).full_name||'بدون اسم';
 const isLeader=()=>me&&me.role==='leader',isMgr=()=>me&&me.role==='manager';
 const isLate=t=>t.status!=='done'&&t.due<today();
-const canManage=t=>isLeader()||(isMgr()&&t.dept_id===me.dept_id);
+const canManage=t=>isLeader()||(isMgr()&&myDeptIds().includes(t.dept_id));
 
 /* ---------- شاشات الدخول ---------- */
 function authScreen(inner){
@@ -217,7 +224,7 @@ async function notify(userIds,body,link){
 }
 
 /* ---------- القائمة ---------- */
-const NAV=[['home','لوحة التحكم',1],['tasks','المهام وسير العمل',1],['members','الأعضاء',1],['circulars','التعاميم',1],['notifs','الإشعارات',1],['audit','سجل العمليات',3]];
+const NAV=[['home','لوحة التحكم',1],['committees','اللجان',1],['tasks','المهام وسير العمل',1],['members','الأعضاء',1],['circulars','التعاميم',1],['notifs','الإشعارات',1],['audit','سجل العمليات',3]];
 const need=r=>({member:1,manager:2,leader:3})[r];
 function render(){
   const un=N.filter(n=>!n.read).length,unc=C.filter(c=>!READ.has(c.id)).length;
@@ -225,7 +232,7 @@ function render(){
   $('#app').innerHTML=`<div class="bar-top"><span class="lgbox"><img src="${LOGO}" alt="شعار ثمرة"></span>${nav}<span class="sp"></span><span class="sm muted" style="white-space:nowrap">${esc(me.full_name||me.email||'')} · ${RL[me.role]}</span><button class="nav" data-act="mypass">كلمة المرور</button><button class="nav" data-act="logout">خروج</button></div>
   <main class="main"><div class="top"><h1>${NAV.find(n=>n[0]===route)[1]}<span class="sub">${esc(SUB[route]||'')}</span></h1></div>${PAGES[route]()}</main>`;
 }
-const SUB={home:'ملخص حالة المبادرة اليوم',tasks:'من التكليف حتى الاعتماد',members:'الأعضاء وحالات العضوية',circulars:'اللوحة الرسمية للمبادرة',notifs:'التنبيهات والتكليفات',audit:'كل عملية وتعديل داخل المنصة'};
+const SUB={home:'ملخص حالة المبادرة اليوم',committees:'اللجان وأقسامها، وعملها وإحصائياتها',tasks:'من التكليف حتى الاعتماد',members:'الأعضاء وحالات العضوية',circulars:'اللوحة الرسمية للمبادرة',notifs:'التنبيهات والتكليفات',audit:'كل عملية وتعديل داخل المنصة'};
 window.addEventListener('hashchange',()=>{if(!me||$('#app').hidden)return;const h=(location.hash||'#home').slice(1);if(NAV.find(n=>n[0]===h&&n[2]<=need(me.role))){route=h;render();window.scrollTo(0,0)}});
 
 /* ---------- الصفحات ---------- */
@@ -264,11 +271,26 @@ home(){
   <div class="panel"><div class="ph"><h3>آخر التعاميم</h3><a href="#circulars">الكل</a></div>
    ${C.length?`<div class="list">${C.slice(0,4).map(c=>`<div class="li"><div class="g"><div class="t">${esc(c.title)}</div><div class="sm muted">${fd(c.created_at)}</div></div>${READ.has(c.id)?'':'<span class="dot"></span>'}</div>`).join('')}</div>`:emptyMsg('لا توجد تعاميم','ستظهر هنا عند نشرها.')}</div></div>`;
 },
+committees(){
+  const cs=committees(),all=cs.map(c=>({c,s:cStats(c)})),tot=all.reduce((a,x)=>({t:a.t+x.s.ts.length,d:a.d+x.s.done,l:a.l+x.s.late,m:a.m+x.s.ms.length}),{t:0,d:0,l:0,m:0});
+  if(!cs.length)return `<div class="panel">${emptyMsg('لا توجد لجان بعد','أضف اللجان من جدول departments في Supabase.')}</div>`;
+  return `<div class="band"><div><div class="k">اللجان</div><div class="v num">${cs.length}</div><div class="s">${chip(D.length-cs.length+' قسم','c-brand')}</div></div>
+  <div><div class="k">الأعضاء</div><div class="v num">${tot.m}</div><div class="s">${chip('في اللجان وأقسامها')}</div></div>
+  <div><div class="k">المهام</div><div class="v num">${tot.t}</div><div class="s">${chip(tot.d+' منجزة','c-good')}${chip(tot.l+' متأخرة',tot.l?'c-bad':'')}</div></div>
+  <div><div class="k">نسبة الإنجاز</div><div class="v num">${tot.t?Math.round(100*tot.d/tot.t):0}٪</div><div class="s">${chip('من كل المهام')}</div></div></div>
+  <div class="grid g2">${all.map(({c,s})=>{const hd=P.find(p=>p.dept_id===c.id&&p.role==='manager');return `<div class="panel click" data-act="committee" data-id="${esc(c.id)}" style="cursor:pointer">
+   <div class="row" style="margin-bottom:6px"><h3 style="flex:1">${esc(c.name)}</h3>${s.late?chip(s.late+' متأخرة','c-bad'):chip('منتظمة','c-good')}</div>
+   <div class="sm muted" style="margin-bottom:10px">رئيس اللجنة: ${hd?esc(hd.full_name||hd.email):'لم يُحدَّد'} · ${s.ms.length} عضو</div>
+   <div class="row" style="flex-wrap:wrap;margin-bottom:12px">${kids(c.id).map(k=>chip(k.name,'c-brand')).join('')||'<span class="sm muted">لا توجد أقسام</span>'}</div>
+   <div class="row sm" style="margin-bottom:4px"><span style="flex:1">إنجاز المهام</span><b class="num">${s.pct}٪</b><span class="muted num">${s.done} من ${s.ts.length}</span></div>${bar(s.pct,s.late?'bad':'')}</div>`}).join('')}</div>
+  <div class="tw sec" style="margin-top:16px"><table><thead><tr><th>اللجنة</th><th>الأعضاء</th><th>النشطون</th><th>المهام</th><th>منجزة</th><th>جارية</th><th>متأخرة</th><th>الالتزام بالمواعيد</th></tr></thead><tbody>${all.map(({c,s})=>`<tr class="click" data-act="committee" data-id="${esc(c.id)}"><td><b>${esc(c.name)}</b></td><td class="num">${s.ms.length}</td><td class="num">${s.active}</td><td class="num">${s.ts.length}</td><td class="num">${s.done}</td><td class="num">${s.run}</td><td class="num">${s.late?chip(s.late,'c-bad'):0}</td><td class="num">${s.ontime}٪</td></tr>`).join('')}</tbody></table></div>
+  ${isLeader()?'':'<p class="sm muted" style="margin-top:12px">الأرقام تعكس المهام اللي تملك صلاحية رؤيتها.</p>'}`;
+},
 tasks(){
   const list=T.filter(t=>(filt.dept==='all'||t.dept_id===filt.dept)&&(!filt.mine||t.assignee_id===me.id));
   const canNew=isLeader()||isMgr();
   return `<div class="tools">${canNew?`<button class="btn pri" data-act="newtask">+ مهمة جديدة</button>`:''}
-   ${isLeader()?`<select class="sel" id="fDept" aria-label="الإدارة"><option value="all">كل الإدارات</option>${D.map(d=>`<option value="${esc(d.id)}" ${filt.dept===d.id?'selected':''}>${esc(d.name)}</option>`).join('')}</select>`:''}
+   ${isLeader()?`<select class="sel" id="fDept" aria-label="الإدارة"><option value="all">كل الإدارات</option>${deptOpts(D,filt.dept)}</select>`:''}
    <label class="row sm"><input type="checkbox" id="fMine" ${filt.mine?'checked':''}> مهامي فقط</label></div>
    ${T.length?`<div class="kan">${Object.keys(TS).map(k=>{const c=list.filter(t=>t.status===k);return `<div class="col"><h4><span>${TS[k][0]}</span>${chip(c.length,TS[k][1])}</h4>${c.map(taskCard).join('')||'<p class="sm muted" style="padding:6px">لا توجد مهام</p>'}</div>`}).join('')}</div>`
    :`<div class="panel">${emptyMsg('لا توجد مهام بعد',canNew?'ابدأ بإنشاء أول مهمة وتكليفها لعضو.':'ستظهر هنا مهامك عند تكليفك.')}</div>`}`;
@@ -276,7 +298,7 @@ tasks(){
 members(){
   const pend=P.filter(p=>p.role==='member'&&!p.dept_id&&p.status==='new');
   return `${isLeader()?`<div class="tools"><button class="btn pri" data-act="addmember">+ إضافة عضو</button></div>`:''}${isLeader()&&INV.length?`<div class="panel" style="margin-bottom:16px"><div class="ph"><h3>دعوات لم تُفعَّل بعد</h3>${chip(INV.length,'c-info')}</div><div class="list">${INV.map(i=>`<div class="li" style="flex-wrap:wrap"><div class="g" style="min-width:180px"><div class="t">${esc(i.full_name)}</div><div class="sm muted">${esc(dn(i.dept_id))} · ${new Date(i.expires_at)<new Date()?'منتهية':'تنتهي '+fd(i.expires_at)} · <span dir="ltr">${fmtCode(i.code)}</span></div></div><button class="btn sm" data-act="invcopy" data-code="${esc(i.code)}">نسخ الرسالة</button><button class="btn sm" data-act="invdel" data-code="${esc(i.code)}">إلغاء</button></div>`).join('')}</div></div>`:''}${isLeader()&&pend.length?`<div class="panel" style="margin-bottom:16px;border-color:var(--accent)"><div class="ph"><h3>حسابات بانتظار التفعيل</h3>${chip(pend.length,'c-acc')}</div><div class="sm muted" style="margin-bottom:8px">اضغط على الاسم لتحديد الإدارة والمنصب.</div><div class="list">${pend.map(p=>`<div class="li click" data-act="member" data-id="${p.id}">${ava(p.full_name||p.email)}<div class="g"><div class="t">${esc(p.full_name||'بدون اسم')}</div><div class="sm muted" dir="ltr" style="text-align:right">${esc(p.email||'')}</div></div></div>`).join('')}</div></div>`:''}
-  <div class="tw"><table><thead><tr><th>العضو</th><th>الإدارة</th><th>المنصب</th><th>المسؤول المباشر</th><th>الحالة</th></tr></thead><tbody>${P.map(p=>`<tr class="click" data-act="member" data-id="${p.id}"><td><div class="row">${ava(p.full_name||p.email)}<b>${esc(p.full_name||p.email||'بدون اسم')}</b></div></td><td>${esc(dn(p.dept_id))}</td><td>${esc(p.position)} ${p.role!=='member'?chip(RL[p.role],'c-brand'):''}</td><td>${p.manager_id?esc(pn(p.manager_id)):'—'}</td><td>${chip(MS[p.status][0],MS[p.status][1])}</td></tr>`).join('')}</tbody></table></div>
+  <div class="tw"><table><thead><tr><th>العضو</th><th>الإدارة</th><th>المنصب</th><th>المسؤول المباشر</th><th>الحالة</th></tr></thead><tbody>${P.map(p=>`<tr class="click" data-act="member" data-id="${p.id}"><td><div class="row">${ava(p.full_name||p.email)}<b>${esc(p.full_name||p.email||'بدون اسم')}</b></div></td><td>${esc(dfull(p.dept_id))}</td><td>${esc(p.position)} ${p.role!=='member'?chip(RL[p.role],'c-brand'):''}</td><td>${p.manager_id?esc(pn(p.manager_id)):'—'}</td><td>${chip(MS[p.status][0],MS[p.status][1])}</td></tr>`).join('')}</tbody></table></div>
   ${isLeader()?`<p class="sm muted" style="margin-top:12px">تنشئ دعوة للعضو وترسل له الرسالة، وهو يفعّل حسابه ببريده الخاص وكلمة مرور يختارها.</p>`:''}`;
 },
 circulars(){
@@ -296,11 +318,22 @@ audit(){
 }};
 
 /* ---------- النوافذ ---------- */
+function cStats(c){const ids=[c.id,...kids(c.id).map(d=>d.id)],ts=T.filter(t=>ids.includes(t.dept_id)),done=ts.filter(t=>t.status==='done').length,late=ts.filter(isLate).length,ms=P.filter(p=>ids.includes(p.dept_id)&&p.status!=='left');
+  return {ids,ts,done,late,run:ts.length-done-late,ms,active:ms.filter(p=>p.status==='active').length,pct:ts.length?Math.round(100*done/ts.length):0,ontime:ts.length?Math.round(100*(ts.length-late)/ts.length):100}}
+function committeeSheet(id){
+  const c=D.find(d=>d.id===id);if(!c)return;const s=cStats(c),hd=P.find(p=>p.dept_id===c.id&&p.role==='manager');
+  const open=s.ts.filter(t=>t.status!=='done').sort((a,b)=>a.due<b.due?-1:1).slice(0,8),circ=C.filter(x=>x.target_dept&&s.ids.includes(x.target_dept)).slice(0,3);
+  openSheet(shead(esc(c.name))+`<dl class="kv"><dt>رئيس اللجنة</dt><dd>${hd?esc(hd.full_name||hd.email):'لم يُحدَّد'}</dd><dt>الأعضاء</dt><dd>${s.ms.length} (${s.active} نشط)</dd><dt>المهام</dt><dd>${s.ts.length}: ${s.done} منجزة، ${s.run} جارية، ${s.late} متأخرة</dd><dt>الإنجاز</dt><dd>${bar(s.pct,s.late?'bad':'')}</dd></dl>
+  <div class="sec"><h4>الأقسام</h4>${kids(c.id).map(k=>{const ms=P.filter(p=>p.dept_id===k.id&&p.status!=='left'),ts=T.filter(t=>t.dept_id===k.id),dn_=ts.filter(t=>t.status==='done').length;return `<div class="li"><div class="g"><div class="t">${esc(k.name)}</div><div class="sm muted">${ms.length} أعضاء · ${ts.length} مهام</div></div>${chip(ts.length?Math.round(100*dn_/ts.length)+'٪':'—','c-brand')}</div>`}).join('')||'<span class="muted sm">لا توجد أقسام.</span>'}</div>
+  <div class="sec"><h4>الأعضاء</h4>${s.ms.map(p=>`<div class="li click" data-act="member" data-id="${p.id}">${ava(p.full_name||p.email)}<div class="g"><div class="t">${esc(p.full_name||p.email)}</div><div class="sm muted">${esc(dfull(p.dept_id))} · ${esc(p.position)}</div></div></div>`).join('')||'<span class="muted sm">لا يوجد أعضاء.</span>'}</div>
+  <div class="sec"><h4>المهام المفتوحة</h4>${open.map(t=>`<div class="li click" data-act="task" data-id="${t.id}"><div class="g"><div class="t">${esc(t.title)}</div><div class="sm muted">${esc(pn(t.assignee_id))} · ${fd(t.due)}</div></div>${isLate(t)?chip('متأخرة','c-bad'):''}${chip(TS[t.status][0],TS[t.status][1])}</div>`).join('')||'<span class="muted sm">لا توجد مهام مفتوحة.</span>'}</div>
+  <div class="sec"><h4>آخر التعاميم الموجهة لها</h4>${circ.map(x=>`<div class="li"><div class="g"><div class="t">${esc(x.title)}</div><div class="sm muted">${fd(x.created_at)}</div></div></div>`).join('')||'<span class="muted sm">لا توجد تعاميم.</span>'}</div>`);
+}
 async function taskSheet(id){
   const t=T.find(x=>x.id===id);if(!t)return;
   let ev=[];try{ev=await q(sb.from('task_events').select('*').eq('task_id',id).order('created_at'))}catch(e){fail(e)}
   openSheet(shead(esc(t.title))+`<div style="margin-bottom:12px">${chip(TS[t.status][0],TS[t.status][1])}</div>
-  <dl class="kv"><dt>الوصف</dt><dd>${esc(t.description||'لا يوجد وصف.')}</dd><dt>الإدارة</dt><dd>${esc(dn(t.dept_id))}</dd><dt>المكلّف</dt><dd>${esc(pn(t.assignee_id))}</dd>
+  <dl class="kv"><dt>الوصف</dt><dd>${esc(t.description||'لا يوجد وصف.')}</dd><dt>الإدارة</dt><dd>${esc(dfull(t.dept_id))}</dd><dt>المكلّف</dt><dd>${esc(pn(t.assignee_id))}</dd>
   <dt>الموعد النهائي</dt><dd style="${isLate(t)?'color:var(--bad);font-weight:700':''}">${fd(t.due)}${isLate(t)?' (متأخرة)':''}</dd><dt>الأولوية</dt><dd>${chip(PR[t.priority][0],PR[t.priority][1])}</dd>
   <dt>الاعتماد</dt><dd>${t.needs_formal_approval?(t.level1_approved?'اعتمده المسؤول، بانتظار الاعتماد الرسمي':'يتطلب اعتمادًا رسميًا من القيادة'):'اعتماد المسؤول المباشر'}</dd><dt>الإنجاز</dt><dd>${bar(t.progress)}</dd></dl>
   ${taskActs(t)}
@@ -308,10 +341,10 @@ async function taskSheet(id){
   <form data-form="comment" data-id="${t.id}" class="row" style="margin-top:12px"><input class="sel" style="flex:1" id="cm" placeholder="اكتب تعليقًا" required><button class="btn pri">إرسال</button></form></div>`);
 }
 function newTaskSheet(){
-  const dep=isLeader()?D:D.filter(d=>d.id===me.dept_id);
+  const dep=isLeader()?D:D.filter(d=>myDeptIds().includes(d.id));
   openSheet(shead('مهمة جديدة')+`<form data-form="newtask"><div class="fld"><label for="nt">اسم المهمة</label><input id="nt" required maxlength="140"></div>
   <div class="fld"><label for="nd">الوصف</label><textarea id="nd" rows="3"></textarea></div>
-  <div class="fld"><label for="ndp">الإدارة المسؤولة</label><select id="ndp">${dep.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></div>
+  <div class="fld"><label for="ndp">الإدارة المسؤولة</label><select id="ndp">${deptOpts(dep)}</select></div>
   <div class="fld"><label for="nw">المكلّف</label><select id="nw"></select></div>
   <div class="fld"><label for="ndu">الموعد النهائي</label><input type="date" id="ndu" value="${today()}" min="${today()}" required></div>
   <div class="fld"><label for="npr">الأولوية</label><select id="npr"><option value="high">عالية</option><option value="med" selected>متوسطة</option><option value="low">منخفضة</option></select></div>
@@ -320,7 +353,7 @@ function newTaskSheet(){
 }
 function fillAssignees(){
   const d=$('#ndp').value,sel=$('#nw');
-  const ppl=P.filter(p=>p.dept_id===d&&p.status!=='left'&&p.status!=='paused');
+  const grp=[d,...kids(d).map(k=>k.id)];const ppl=P.filter(p=>grp.includes(p.dept_id)&&p.status!=='left'&&p.status!=='paused');
   sel.innerHTML=ppl.length?ppl.map(p=>`<option value="${p.id}">${esc(p.full_name||p.email)}</option>`).join(''):'<option value="">لا يوجد أعضاء في هذه الإدارة</option>';
 }
 function memberSheet(id){
@@ -329,7 +362,7 @@ function memberSheet(id){
   <dl class="kv"><dt>البريد</dt><dd dir="ltr" style="text-align:right">${esc(p.email||'—')}</dd><dt>الإدارة</dt><dd>${esc(dn(p.dept_id))}</dd><dt>المنصب</dt><dd>${esc(p.position)}</dd><dt>الدور</dt><dd>${RL[p.role]}</dd><dt>المسؤول المباشر</dt><dd>${p.manager_id?esc(pn(p.manager_id)):'—'}</dd><dt>الانضمام</dt><dd>${fd(p.joined_at)}</dd></dl>
   ${edit?`<form data-form="member" data-id="${p.id}"><div class="sec"><h4>الدور والمسؤوليات</h4></div>
   <div class="fld"><label for="mnm">الاسم</label><input id="mnm" value="${esc(p.full_name)}"></div>
-  <div class="fld"><label for="mdp">الإدارة</label><select id="mdp"><option value="">بدون إدارة</option>${D.map(d=>`<option value="${esc(d.id)}" ${d.id===p.dept_id?'selected':''}>${esc(d.name)}</option>`).join('')}</select></div>
+  <div class="fld"><label for="mdp">الإدارة</label><select id="mdp"><option value="">بدون إدارة</option>${deptOpts(D,p.dept_id)}</select></div>
   <div class="fld"><label for="mpo">المنصب</label><input id="mpo" value="${esc(p.position)}"></div>
   <div class="fld"><label for="mrl">الدور في المنصة</label><select id="mrl" ${self?'disabled':''}>${Object.keys(RL).map(k=>`<option value="${k}" ${k===p.role?'selected':''}>${RL[k]}</option>`).join('')}</select>${self?'<span class="sm muted">لا يمكنك تغيير دورك بنفسك.</span>':''}</div>
   <div class="fld"><label for="mst">حالة العضوية</label><select id="mst" ${self?'disabled':''}>${Object.keys(MS).map(k=>`<option value="${k}" ${k===p.status?'selected':''}>${MS[k][0]}</option>`).join('')}</select></div>
@@ -343,7 +376,7 @@ function inviteText(i){const url=location.origin+location.pathname;
 function addMemberSheet(){
   openSheet(shead('إضافة عضو')+`<form data-form="addmember" autocomplete="off">
   <div class="fld"><label for="am1">الاسم الكامل</label><input id="am1" required maxlength="80"></div>
-  <div class="fld"><label for="am3">الإدارة</label><select id="am3" required>${D.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></div>
+  <div class="fld"><label for="am3">الإدارة</label><select id="am3" required>${deptOpts(D)}</select></div>
   <div class="fld"><label for="am4">المنصب</label><input id="am4" value="عضو" maxlength="60"></div>
   <div class="fld"><label for="am5">الدور في المنصة</label><select id="am5"><option value="member">عضو</option><option value="manager">مدير إدارة</option></select></div>
   <div class="fld"><label for="am6">المسؤول المباشر</label><select id="am6"><option value="">لا يوجد</option>${P.filter(x=>x.role!=='member'&&x.status!=='left').map(x=>`<option value="${x.id}">${esc(x.full_name||x.email)}</option>`).join('')}</select></div>
@@ -360,10 +393,10 @@ function passSheet(){
   <div class="fld"><label for="mp2">أعد كتابتها</label><input id="mp2" type="password" autocomplete="new-password" dir="ltr" style="text-align:right"></div><button class="btn pri" id="mpGo">حفظ</button></form>`);
 }
 function circSheet(){
-  const dep=isLeader()?D:D.filter(d=>d.id===me.dept_id);
+  const dep=isLeader()?D:D.filter(d=>myDeptIds().includes(d.id));
   openSheet(shead('تعميم جديد')+`<form data-form="newcirc"><div class="fld"><label for="ct">العنوان</label><input id="ct" required maxlength="140"></div>
   <div class="fld"><label for="cb">النص</label><textarea id="cb" rows="6" required></textarea></div>
-  <div class="fld"><label for="cd">موجّه إلى</label><select id="cd">${isLeader()?'<option value="">الجميع</option>':''}${dep.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></div>
+  <div class="fld"><label for="cd">موجّه إلى</label><select id="cd">${isLeader()?'<option value="">الجميع</option>':''}${deptOpts(dep)}</select></div>
   <label class="row" style="margin-bottom:14px"><input type="checkbox" id="ci"> تعميم مهم</label><button class="btn pri" id="ccGo">نشر التعميم</button>
   <p class="sm muted" style="margin-top:10px">الإرسال بالبريد الإلكتروني يُفعَّل لاحقًا بعد ربط الدومين.</p></form>`);
 }
@@ -397,6 +430,7 @@ document.addEventListener('click',async e=>{
   if(a.startsWith('t-')){e.stopPropagation();moveTask(+id,a.slice(2));return}
   if(a==='newtask'){newTaskSheet();return}
   if(a==='member'){memberSheet(id);return}
+  if(a==='committee'){committeeSheet(el.dataset.id);return}
   if(a==='newcirc'){circSheet();return}
   if(a==='addmember'){addMemberSheet();return}
   if(a==='mypass'){passSheet();return}
