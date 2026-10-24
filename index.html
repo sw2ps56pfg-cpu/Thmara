@@ -133,7 +133,7 @@ function fail(e){console.error(e);toast('تعذر تنفيذ العملية: '+(
 async function q(p){const r=await p;if(r.error)throw r.error;return r.data}
 
 /* ---------- الحالة ---------- */
-let me=null,D=[],P=[],T=[],C=[],READ=new Set(),ALLREAD=[],N=[],AUD=[];
+let me=null,D=[],P=[],T=[],C=[],READ=new Set(),ALLREAD=[],N=[],AUD=[],INV=[];
 let route='home',filt={dept:'all',mine:false},booted=false;
 const dn=id=>(D.find(d=>d.id===id)||{name:'بدون إدارة'}).name;
 const pn=id=>(P.find(p=>p.id===id)||{full_name:'—'}).full_name||'بدون اسم';
@@ -153,7 +153,16 @@ function loginScreen(msg,ok){
   <div class="fld"><label for="lgP">كلمة المرور</label><input id="lgP" type="password" autocomplete="current-password" dir="ltr" style="text-align:right"></div>
   <div style="margin:2px 0 18px"><button type="button" class="ln-link" data-act="forgot">نسيت كلمة المرور؟</button></div>
   <button class="ln-go" id="lgGo">دخول</button></form>
-  <p class="sm" style="color:var(--mu);margin:0;text-align:center;max-width:400px">لا تملك حسابًا؟ يصلك رابط دعوة على بريدك بعد قبول طلب انضمامك.</p>`);
+  <p class="sm" style="color:var(--mu);margin:0;text-align:center;max-width:400px">أرسلت لك القيادة رمز تفعيل؟ <button type="button" class="ln-link" data-act="tojoin">فعّل حسابك</button></p>`);
+}
+function joinScreen(msg,code,em){
+  authScreen(`<form class="ln-card" data-form="join" novalidate><h1>تفعيل حسابك</h1><p class="sub">أدخل رمز التفعيل اللي أرسلته لك قيادة المبادرة، ثم بريدك وكلمة مرور تختارها.</p>
+  ${msg?`<div class="ln-err" role="alert">${esc(msg)}</div>`:''}
+  <div class="fld"><label for="jc">رمز التفعيل</label><input id="jc" dir="ltr" style="text-align:right;letter-spacing:.08em" autocomplete="off" value="${esc(code||new URLSearchParams(location.search).get('join')||'')}"></div>
+  <div class="fld"><label for="je">بريدك الإلكتروني</label><input id="je" type="email" autocomplete="email" dir="ltr" style="text-align:right" value="${esc(em||'')}"></div>
+  <div class="fld"><label for="jp1">كلمة المرور (8 خانات على الأقل)</label><input id="jp1" type="password" autocomplete="new-password" dir="ltr" style="text-align:right"></div>
+  <div class="fld"><label for="jp2">أعد كتابتها</label><input id="jp2" type="password" autocomplete="new-password" dir="ltr" style="text-align:right"></div>
+  <button class="ln-go" id="jGo">تفعيل ودخول</button><div style="margin-top:12px;text-align:center"><button type="button" class="ln-link" data-act="tologin">لدي حساب؟ سجّل دخولك</button></div></form>`);
 }
 function passScreen(msg){
   authScreen(`<form class="ln-card" data-form="newpass" novalidate><h1>اختر كلمة مرور</h1><p class="sub">اكتب كلمة مرور جديدة لحسابك.</p>
@@ -170,7 +179,7 @@ function pendingScreen(){
 /* ---------- التحميل ---------- */
 async function boot(){
   const {data:{session}}=await sb.auth.getSession();
-  if(!session){loginScreen();return}
+  if(!session){if(new URLSearchParams(location.search).get('join'))joinScreen();else loginScreen();return}
   if(NEEDS_PASSWORD&&!booted){passScreen();return}
   await enter(session);
 }
@@ -197,7 +206,8 @@ async function loadAll(){
     q(sb.from('notifications').select('*').eq('user_id',me.id).order('created_at',{ascending:false}).limit(60))]);
   D=d;P=p;T=t;C=c;N=n;ALLREAD=r;READ=new Set(r.filter(x=>x.user_id===me.id).map(x=>x.circular_id));
   me=P.find(x=>x.id===me.id)||me;
-  if(isLeader()){try{AUD=await q(sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(100))}catch(e){AUD=[]}}
+  if(isLeader()){try{AUD=await q(sb.from('audit_log').select('*').order('created_at',{ascending:false}).limit(100))}catch(e){AUD=[]}
+    try{INV=await q(sb.from('invites').select('*').is('used_at',null).order('created_at',{ascending:false}))}catch(e){INV=[]}}
 }
 async function reload(){await loadAll();render()}
 async function log(action){try{await sb.from('audit_log').insert({action})}catch(e){}}
@@ -212,7 +222,7 @@ const need=r=>({member:1,manager:2,leader:3})[r];
 function render(){
   const un=N.filter(n=>!n.read).length,unc=C.filter(c=>!READ.has(c.id)).length;
   const nav=NAV.filter(n=>n[2]<=need(me.role)).map(n=>`<a class="nav ${route===n[0]?'on':''}" href="#${n[0]}">${n[1]}${n[0]==='notifs'&&un?`<span class="badge num">${un}</span>`:''}${n[0]==='circulars'&&unc?`<span class="badge num">${unc}</span>`:''}</a>`).join('');
-  $('#app').innerHTML=`<div class="bar-top"><span class="lgbox"><img src="${LOGO}" alt="شعار ثمرة"></span>${nav}<span class="sp"></span><span class="sm muted" style="white-space:nowrap">${esc(me.full_name||me.email||'')} · ${RL[me.role]}</span><button class="nav" data-act="logout">خروج</button></div>
+  $('#app').innerHTML=`<div class="bar-top"><span class="lgbox"><img src="${LOGO}" alt="شعار ثمرة"></span>${nav}<span class="sp"></span><span class="sm muted" style="white-space:nowrap">${esc(me.full_name||me.email||'')} · ${RL[me.role]}</span><button class="nav" data-act="mypass">كلمة المرور</button><button class="nav" data-act="logout">خروج</button></div>
   <main class="main"><div class="top"><h1>${NAV.find(n=>n[0]===route)[1]}<span class="sub">${esc(SUB[route]||'')}</span></h1></div>${PAGES[route]()}</main>`;
 }
 const SUB={home:'ملخص حالة المبادرة اليوم',tasks:'من التكليف حتى الاعتماد',members:'الأعضاء وحالات العضوية',circulars:'اللوحة الرسمية للمبادرة',notifs:'التنبيهات والتكليفات',audit:'كل عملية وتعديل داخل المنصة'};
@@ -265,9 +275,9 @@ tasks(){
 },
 members(){
   const pend=P.filter(p=>p.role==='member'&&!p.dept_id&&p.status==='new');
-  return `${isLeader()&&pend.length?`<div class="panel" style="margin-bottom:16px;border-color:var(--accent)"><div class="ph"><h3>حسابات بانتظار التفعيل</h3>${chip(pend.length,'c-acc')}</div><div class="sm muted" style="margin-bottom:8px">اضغط على الاسم لتحديد الإدارة والمنصب.</div><div class="list">${pend.map(p=>`<div class="li click" data-act="member" data-id="${p.id}">${ava(p.full_name||p.email)}<div class="g"><div class="t">${esc(p.full_name||'بدون اسم')}</div><div class="sm muted" dir="ltr" style="text-align:right">${esc(p.email||'')}</div></div></div>`).join('')}</div></div>`:''}
+  return `${isLeader()?`<div class="tools"><button class="btn pri" data-act="addmember">+ إضافة عضو</button></div>`:''}${isLeader()&&INV.length?`<div class="panel" style="margin-bottom:16px"><div class="ph"><h3>دعوات لم تُفعَّل بعد</h3>${chip(INV.length,'c-info')}</div><div class="list">${INV.map(i=>`<div class="li" style="flex-wrap:wrap"><div class="g" style="min-width:180px"><div class="t">${esc(i.full_name)}</div><div class="sm muted">${esc(dn(i.dept_id))} · ${new Date(i.expires_at)<new Date()?'منتهية':'تنتهي '+fd(i.expires_at)} · <span dir="ltr">${fmtCode(i.code)}</span></div></div><button class="btn sm" data-act="invcopy" data-code="${esc(i.code)}">نسخ الرسالة</button><button class="btn sm" data-act="invdel" data-code="${esc(i.code)}">إلغاء</button></div>`).join('')}</div></div>`:''}${isLeader()&&pend.length?`<div class="panel" style="margin-bottom:16px;border-color:var(--accent)"><div class="ph"><h3>حسابات بانتظار التفعيل</h3>${chip(pend.length,'c-acc')}</div><div class="sm muted" style="margin-bottom:8px">اضغط على الاسم لتحديد الإدارة والمنصب.</div><div class="list">${pend.map(p=>`<div class="li click" data-act="member" data-id="${p.id}">${ava(p.full_name||p.email)}<div class="g"><div class="t">${esc(p.full_name||'بدون اسم')}</div><div class="sm muted" dir="ltr" style="text-align:right">${esc(p.email||'')}</div></div></div>`).join('')}</div></div>`:''}
   <div class="tw"><table><thead><tr><th>العضو</th><th>الإدارة</th><th>المنصب</th><th>المسؤول المباشر</th><th>الحالة</th></tr></thead><tbody>${P.map(p=>`<tr class="click" data-act="member" data-id="${p.id}"><td><div class="row">${ava(p.full_name||p.email)}<b>${esc(p.full_name||p.email||'بدون اسم')}</b></div></td><td>${esc(dn(p.dept_id))}</td><td>${esc(p.position)} ${p.role!=='member'?chip(RL[p.role],'c-brand'):''}</td><td>${p.manager_id?esc(pn(p.manager_id)):'—'}</td><td>${chip(MS[p.status][0],MS[p.status][1])}</td></tr>`).join('')}</tbody></table></div>
-  ${isLeader()?`<p class="sm muted" style="margin-top:12px">لإضافة عضو جديد: ادعه من Supabase (Authentication ثم Users ثم Invite user)، وبعد دخوله يظهر هنا لتحدد إدارته.</p>`:''}`;
+  ${isLeader()?`<p class="sm muted" style="margin-top:12px">تنشئ دعوة للعضو وترسل له الرسالة، وهو يفعّل حسابه ببريده الخاص وكلمة مرور يختارها.</p>`:''}`;
 },
 circulars(){
   const canNew=isLeader()||isMgr(),active=P.filter(p=>p.status!=='left').length;
@@ -326,6 +336,29 @@ function memberSheet(id){
   <div class="fld"><label for="mmg">المسؤول المباشر</label><select id="mmg"><option value="">لا يوجد</option>${P.filter(x=>x.id!==p.id&&x.role!=='member'||x.id===p.manager_id).map(x=>`<option value="${x.id}" ${x.id===p.manager_id?'selected':''}>${esc(x.full_name||x.email)}</option>`).join('')}</select></div>
   <button class="btn pri" id="mbGo">حفظ التغييرات</button></form>`:'<p class="muted sm">تعديل بيانات الأعضاء متاح للقيادة.</p>'}`);
 }
+function genCode(){const a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',b=crypto.getRandomValues(new Uint8Array(10));return [...b].map(x=>a[x%32]).join('')}
+const fmtCode=c=>c.slice(0,5)+'-'+c.slice(5);
+function inviteText(i){const url=location.origin+location.pathname;
+  return `أهلًا ${i.full_name}، تمت إضافتك إلى منصة ثمرة.\nافتح الرابط: ${url}?join=${i.code}\nثم أدخل رمز التفعيل: ${fmtCode(i.code)}\nواكتب بريدك الخاص وكلمة المرور اللي تختارها.\nالرمز صالح حتى ${fd(i.expires_at)} ويُستخدم مرة واحدة.`}
+function addMemberSheet(){
+  openSheet(shead('إضافة عضو')+`<form data-form="addmember" autocomplete="off">
+  <div class="fld"><label for="am1">الاسم الكامل</label><input id="am1" required maxlength="80"></div>
+  <div class="fld"><label for="am3">الإدارة</label><select id="am3" required>${D.map(d=>`<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('')}</select></div>
+  <div class="fld"><label for="am4">المنصب</label><input id="am4" value="عضو" maxlength="60"></div>
+  <div class="fld"><label for="am5">الدور في المنصة</label><select id="am5"><option value="member">عضو</option><option value="manager">مدير إدارة</option></select></div>
+  <div class="fld"><label for="am6">المسؤول المباشر</label><select id="am6"><option value="">لا يوجد</option>${P.filter(x=>x.role!=='member'&&x.status!=='left').map(x=>`<option value="${x.id}">${esc(x.full_name||x.email)}</option>`).join('')}</select></div>
+  <div class="fld"><label for="am8">صلاحية الدعوة</label><select id="am8"><option value="3">3 أيام</option><option value="7" selected>7 أيام</option><option value="14">14 يومًا</option></select></div>
+  <button class="btn pri" id="amGo">إنشاء الدعوة</button></form>`);
+}
+function inviteSheet(i){
+  openSheet(shead('الدعوة جاهزة')+`<p style="margin-bottom:10px">أرسل هذه الرسالة للعضو. هو يدخل بريده وكلمة مروره بنفسه، وأنت لا تعرف كلمة مروره.</p>
+  <div class="fld"><textarea id="credTxt" rows="7" readonly>${esc(inviteText(i))}</textarea></div>
+  <div class="acts"><button class="btn pri" data-act="copycreds">نسخ الرسالة</button><button class="btn" data-act="close">تم</button></div>`);
+}
+function passSheet(){
+  openSheet(shead('تغيير كلمة المرور')+`<form data-form="mypass"><div class="fld"><label for="mp1">كلمة المرور الجديدة (8 خانات على الأقل)</label><input id="mp1" type="password" autocomplete="new-password" dir="ltr" style="text-align:right"></div>
+  <div class="fld"><label for="mp2">أعد كتابتها</label><input id="mp2" type="password" autocomplete="new-password" dir="ltr" style="text-align:right"></div><button class="btn pri" id="mpGo">حفظ</button></form>`);
+}
 function circSheet(){
   const dep=isLeader()?D:D.filter(d=>d.id===me.dept_id);
   openSheet(shead('تعميم جديد')+`<form data-form="newcirc"><div class="fld"><label for="ct">العنوان</label><input id="ct" required maxlength="140"></div>
@@ -365,6 +398,13 @@ document.addEventListener('click',async e=>{
   if(a==='newtask'){newTaskSheet();return}
   if(a==='member'){memberSheet(id);return}
   if(a==='newcirc'){circSheet();return}
+  if(a==='addmember'){addMemberSheet();return}
+  if(a==='mypass'){passSheet();return}
+  if(a==='invcopy'){const i=INV.find(x=>x.code===el.dataset.code);if(i)inviteSheet(i);return}
+  if(a==='invdel'){try{await q(sb.from('invites').delete().eq('code',el.dataset.code));await log('ألغى دعوة');await reload();toast('أُلغيت الدعوة')}catch(err){fail(err)}return}
+  if(a==='tojoin'){joinScreen();return}
+  if(a==='tologin'){loginScreen();return}
+  if(a==='copycreds'){const ta=$('#credTxt');ta.select();let ok=false;try{await navigator.clipboard.writeText(ta.value);ok=true}catch(err){try{ok=document.execCommand('copy')}catch(e2){}}toast(ok?'نُسخت الرسالة':'حدّد النص وانسخه يدويًا');return}
   if(a==='readc'){try{await q(sb.from('circular_reads').insert({circular_id:+id}));await reload()}catch(err){fail(err)}return}
   if(a==='nread'){try{await q(sb.from('notifications').update({read:true}).eq('id',+id))}catch(err){}
     const l=el.dataset.link;await reload();if(l&&NAV.find(n=>n[0]===l)){location.hash='#'+l}return}
@@ -392,6 +432,18 @@ document.addEventListener('submit',async e=>{
       busy(true);const {error}=await sb.auth.updateUser({password:a});
       if(error){passScreen('تعذر الحفظ: '+error.message);return}
       history.replaceState(null,'',location.pathname);const {data:{session}}=await sb.auth.getSession();await enter(session);return}
+    if(k==='join'){const code=$('#jc').value.trim(),em=$('#je').value.trim(),a=$('#jp1').value,b=$('#jp2').value;
+      if(code.replace(/[^A-Za-z0-9]/g,'').length!==10){joinScreen('رمز التفعيل 10 خانات، تأكد منه.',code,em);return}
+      if(!/^\S+@\S+\.\S+$/.test(em)){joinScreen('اكتب بريدًا إلكترونيًا صحيحًا.',code,em);return}
+      if(a.length<8){joinScreen('كلمة المرور لا تقل عن 8 خانات.',code,em);return}
+      if(a!==b){joinScreen('كلمتا المرور غير متطابقتين.',code,em);return}
+      busy(true);const {data,error}=await sb.functions.invoke('redeem-invite',{body:{code,email:em,password:a}});
+      if(error){let m=error.message;try{const j=await error.context.json();m=j.error||m}catch(e2){}joinScreen(m,code,em);return}
+      if(data&&data.error){joinScreen(data.error,code,em);return}
+      history.replaceState(null,'',location.pathname);
+      const r2=await sb.auth.signInWithPassword({email:em,password:a});
+      if(r2.error){loginScreen('تم تفعيل حسابك. سجّل دخولك الآن.',true);return}
+      await enter(r2.data.session);return}
     busy(true);
     if(k==='comment'){const v=$('#cm').value.trim();if(!v){busy(false);return}
       await q(sb.from('task_events').insert({task_id:+f.dataset.id,kind:'comment',body:v}));taskSheet(+f.dataset.id);return}
@@ -409,6 +461,13 @@ document.addEventListener('submit',async e=>{
       if(!self&&p.dept_id!==patch.dept_id)await notify([id],'نُقلت إلى '+dn(patch.dept_id),'home');
       if(!self&&p.status==='new'&&patch.status==='new'&&patch.dept_id)await q(sb.from('profiles').update({status:'active'}).eq('id',id));
       await log('عدّل بيانات '+(patch.full_name||p.email));closeSheet();toast('حُفظت التغييرات');await reload();return}
+    if(k==='addmember'){const name=$('#am1').value.trim();if(!name){busy(false);return}
+      const row={code:genCode(),full_name:name,dept_id:$('#am3').value,position:$('#am4').value.trim()||'عضو',role:$('#am5').value,manager_id:$('#am6').value||null,expires_at:new Date(Date.now()+(+$('#am8').value)*864e5).toISOString()};
+      await q(sb.from('invites').insert(row));await log('أنشأ دعوة لـ '+name);await reload();inviteSheet(row);return}
+    if(k==='mypass'){const a=$('#mp1').value,b=$('#mp2').value;
+      if(a.length<8){toast('كلمة المرور لا تقل عن 8 خانات');busy(false);return}
+      if(a!==b){toast('كلمتا المرور غير متطابقتين');busy(false);return}
+      const {error}=await sb.auth.updateUser({password:a});if(error)throw error;closeSheet();toast('تم تغيير كلمة المرور');return}
     if(k==='newcirc'){const title=$('#ct').value.trim(),dept=$('#cd').value||null;
       await q(sb.from('circulars').insert({title,body:$('#cb').value.trim(),target_dept:dept,important:$('#ci').checked}));
       await notify(P.filter(p=>p.status!=='left'&&(!dept||p.dept_id===dept)).map(p=>p.id),'تعميم جديد: '+title,'circulars');
